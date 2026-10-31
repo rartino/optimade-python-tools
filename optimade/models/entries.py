@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from optimade.models.jsonapi import Attributes, Relationships, Resource
 from optimade.models.optimade_json import (
@@ -191,7 +191,31 @@ The OPTIONAL human-readable description of the relationship MAY be provided in t
     ] = None
 
 
+# The JSON type that a Property Definition (OPTIMADE >= 1.2) MUST give as the first
+# element of `type` for each OPTIMADE data type in `x-optimade-type`.
+_PROPERTY_DEFINITION_JSON_TYPES: dict[DataType, str] = {
+    DataType.STRING: "string",
+    DataType.INTEGER: "integer",
+    DataType.FLOAT: "number",
+    DataType.BOOLEAN: "boolean",
+    DataType.TIMESTAMP: "string",
+    DataType.LIST: "array",
+    DataType.DICTIONARY: "object",
+}
+
+
 class EntryInfoProperty(BaseModel):
+    """Description of a property in an entry listing info endpoint (`/info/<entry_type>`).
+
+    Since OPTIMADE v1.2, each property is described by a full Property Definition, in
+    which `type` is a JSON Schema type list (e.g. `["integer", "null"]`) and the
+    OPTIMADE data type is given by `x-optimade-type`.
+    The earlier form, in which `type` is a single OPTIMADE data type (e.g. `"integer"`),
+    is also accepted.
+    Other Property Definition keys are not modelled here and are ignored.
+
+    """
+
     description: Annotated[
         str,
         StrictField(description="A human-readable description of the entry property"),
@@ -202,7 +226,8 @@ class EntryInfoProperty(BaseModel):
         StrictField(
             description="""The physical unit of the entry property.
 This MUST be a valid representation of units according to version 2.1 of [The Unified Code for Units of Measure](https://unitsofmeasure.org/ucum.html).
-It is RECOMMENDED that non-standard (non-SI) units are described in the description for the property.""",
+It is RECOMMENDED that non-standard (non-SI) units are described in the description for the property.
+In a Property Definition (OPTIMADE >= 1.2), the unit is instead given by `x-optimade-unit`.""",
         ),
     ] = None
 
@@ -210,21 +235,114 @@ It is RECOMMENDED that non-standard (non-SI) units are described in the descript
         bool | None,
         StrictField(
             description="""Defines whether the entry property can be used for sorting with the "sort" parameter.
-If the entry listing endpoint supports sorting, this key MUST be present for sortable properties with value `true`.""",
+If the entry listing endpoint supports sorting, this key MUST be present for sortable properties with value `true`.
+In a Property Definition (OPTIMADE >= 1.2), this is instead given by the `sortable` key of `x-optimade-implementation`.""",
         ),
     ] = None
 
     type: Annotated[
-        DataType | None,
+        DataType | list[str] | None,
         StrictField(
             title="Type",
             description="""The type of the property's value.
-This MUST be any of the types defined in the Data types section.
+
+In a Property Definition (OPTIMADE >= 1.2), this MUST be a list of one or two elements, where the first element is the JSON type corresponding to `x-optimade-type` (`"boolean"`, `"string"`, `"integer"`, `"number"`, `"array"` or `"object"`), and the optional second element MUST be `"null"`, specifying that the property can be `null`.
+
+In the earlier form (OPTIMADE < 1.2), this MUST be any of the types defined in the Data types section.
 For the purpose of compatibility with future versions of this specification, a client MUST accept values that are not `string` values specifying any of the OPTIMADE Data types, but MUST then also disregard the `type` field.
 Note, if the value is a nested type, only the outermost type should be reported.
 E.g., for the entry resource `structures`, the `species` property is defined as a list of dictionaries, hence its `type` value would be `list`.""",
         ),
     ] = None
+
+    x_optimade_type: Annotated[
+        str | None,
+        StrictField(
+            alias="x-optimade-type",
+            optimade_version=">= 1.2",
+            description="""The OPTIMADE data type of the property's value in a Property Definition.
+MUST be one of `"string"`, `"integer"`, `"float"`, `"boolean"`, `"timestamp"`, `"list"`, `"dictionary"` or the name of a namespace-specific data type that starts with an underscore followed by the provider-specific prefix.""",
+        ),
+    ] = None
+
+    @field_validator("type", mode="after")
+    @classmethod
+    def check_json_schema_type(
+        cls, value: DataType | list[str] | None
+    ) -> DataType | list[str] | None:
+        """Check the list form of `type` used in Property Definitions."""
+        if not isinstance(value, list):
+            return value
+        if not 1 <= len(value) <= 2:
+            raise ValueError(
+                f"`type` must be a list of one or two elements, not {value!r}."
+            )
+        if value[0] not in _PROPERTY_DEFINITION_JSON_TYPES.values():
+            raise ValueError(
+                f"The first element of `type` must be one of "
+                f"{sorted(set(_PROPERTY_DEFINITION_JSON_TYPES.values()))}, not {value[0]!r}."
+            )
+        if len(value) == 2 and value[1] != "null":
+            raise ValueError(
+                f"The second element of `type` must be 'null', not {value[1]!r}."
+            )
+        return value
+
+    @model_validator(mode="after")
+    def check_type_matches_x_optimade_type(self) -> "EntryInfoProperty":
+        """Check that a list `type` gives the JSON type of a standard `x-optimade-type`."""
+        if isinstance(self.type, list) and self.x_optimade_type is not None:
+            try:
+                data_type = DataType(self.x_optimade_type)
+            except ValueError:
+                # Namespace-specific data types may use any JSON type.
+                return self
+            expected = _PROPERTY_DEFINITION_JSON_TYPES.get(data_type)
+            if expected is not None and self.type[0] != expected:
+                raise ValueError(
+                    f"`type` {self.type!r} does not match `x-optimade-type` "
+                    f"{self.x_optimade_type!r}, which requires {expected!r}."
+                )
+        return self
+
+    @staticmethod
+    def resolve_data_type(
+        type_: DataType | list[str] | str | None,
+        x_optimade_type: str | None = None,
+    ) -> DataType | None:
+        """Return the OPTIMADE data type described by the `type` and
+        `x-optimade-type` values of an entry info property, in either form.
+
+        A standard `x-optimade-type` is used as is.
+        Otherwise, including for namespace-specific data types, the data type is
+        derived from `type`, mapping a JSON type (e.g. `"number"`) to its OPTIMADE
+        counterpart (e.g. `float`); note that this cannot tell a `timestamp` from a
+        `string`.
+
+        Parameters:
+            type_: The value of `type`.
+            x_optimade_type: The value of `x-optimade-type`, if any.
+
+        Returns:
+            The OPTIMADE data type, or `None` if it cannot be determined
+            (including when it is `unknown`).
+
+        """
+        data_type = None
+        if x_optimade_type is not None:
+            try:
+                data_type = DataType(x_optimade_type)
+            except ValueError:
+                pass
+        if data_type is None:
+            if isinstance(type_, list):
+                data_type = DataType.from_json_type(type_[0]) if type_ else None
+            elif type_ is not None:
+                try:
+                    data_type = DataType(type_)
+                except ValueError:
+                    pass
+        return None if data_type is DataType.UNKNOWN else data_type
 
 
 class EntryInfoResource(BaseModel):

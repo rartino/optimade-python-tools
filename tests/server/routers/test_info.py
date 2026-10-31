@@ -62,6 +62,13 @@ class TestInfoStructuresEndpoint(RegularEndpointTests):
         ):
             assert "sortable" in info_keys
 
+    def test_info_structures_property_keys(self):
+        """Check that no internal keys (e.g., `support`) leak into the properties"""
+        for info_keys in (
+            self.json_response.get("data", {}).get("properties", {}).values()
+        ):
+            assert set(info_keys) <= {"description", "unit", "sortable", "type"}
+
     def test_sortable_values(self):
         """Make sure certain properties are and are not sortable"""
         sortable = ["id", "nelements", "nsites"]

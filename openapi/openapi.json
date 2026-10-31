@@ -2132,7 +2132,7 @@
               }
             ],
             "title": "Unit",
-            "description": "The physical unit of the entry property.\nThis MUST be a valid representation of units according to version 2.1 of [The Unified Code for Units of Measure](https://unitsofmeasure.org/ucum.html).\nIt is RECOMMENDED that non-standard (non-SI) units are described in the description for the property."
+            "description": "The physical unit of the entry property.\nThis MUST be a valid representation of units according to version 2.1 of [The Unified Code for Units of Measure](https://unitsofmeasure.org/ucum.html).\nIt is RECOMMENDED that non-standard (non-SI) units are described in the description for the property.\nIn a Property Definition (OPTIMADE >= 1.2), the unit is instead given by `x-optimade-unit`."
           },
           "sortable": {
             "anyOf": [
@@ -2144,7 +2144,7 @@
               }
             ],
             "title": "Sortable",
-            "description": "Defines whether the entry property can be used for sorting with the \"sort\" parameter.\nIf the entry listing endpoint supports sorting, this key MUST be present for sortable properties with value `true`."
+            "description": "Defines whether the entry property can be used for sorting with the \"sort\" parameter.\nIf the entry listing endpoint supports sorting, this key MUST be present for sortable properties with value `true`.\nIn a Property Definition (OPTIMADE >= 1.2), this is instead given by the `sortable` key of `x-optimade-implementation`."
           },
           "type": {
             "anyOf": [
@@ -2152,18 +2152,37 @@
                 "$ref": "#/components/schemas/DataType"
               },
               {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
                 "type": "null"
               }
             ],
             "title": "Type",
-            "description": "The type of the property's value.\nThis MUST be any of the types defined in the Data types section.\nFor the purpose of compatibility with future versions of this specification, a client MUST accept values that are not `string` values specifying any of the OPTIMADE Data types, but MUST then also disregard the `type` field.\nNote, if the value is a nested type, only the outermost type should be reported.\nE.g., for the entry resource `structures`, the `species` property is defined as a list of dictionaries, hence its `type` value would be `list`."
+            "description": "The type of the property's value.\n\nIn a Property Definition (OPTIMADE >= 1.2), this MUST be a list of one or two elements, where the first element is the JSON type corresponding to `x-optimade-type` (`\"boolean\"`, `\"string\"`, `\"integer\"`, `\"number\"`, `\"array\"` or `\"object\"`), and the optional second element MUST be `\"null\"`, specifying that the property can be `null`.\n\nIn the earlier form (OPTIMADE < 1.2), this MUST be any of the types defined in the Data types section.\nFor the purpose of compatibility with future versions of this specification, a client MUST accept values that are not `string` values specifying any of the OPTIMADE Data types, but MUST then also disregard the `type` field.\nNote, if the value is a nested type, only the outermost type should be reported.\nE.g., for the entry resource `structures`, the `species` property is defined as a list of dictionaries, hence its `type` value would be `list`."
+          },
+          "x-optimade-type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X-Optimade-Type",
+            "description": "The OPTIMADE data type of the property's value in a Property Definition.\nMUST be one of `\"string\"`, `\"integer\"`, `\"float\"`, `\"boolean\"`, `\"timestamp\"`, `\"list\"`, `\"dictionary\"` or the name of a namespace-specific data type that starts with an underscore followed by the provider-specific prefix."
           }
         },
         "type": "object",
         "required": [
           "description"
         ],
-        "title": "EntryInfoProperty"
+        "title": "EntryInfoProperty",
+        "description": "Description of a property in an entry listing info endpoint (`/info/<entry_type>`).\n\nSince OPTIMADE v1.2, each property is described by a full Property Definition, in\nwhich `type` is a JSON Schema type list (e.g. `[\"integer\", \"null\"]`) and the\nOPTIMADE data type is given by `x-optimade-type`.\nThe earlier form, in which `type` is a single OPTIMADE data type (e.g. `\"integer\"`),\nis also accepted.\nOther Property Definition keys are not modelled here and are ignored."
       },
       "EntryInfoResource": {
         "properties": {

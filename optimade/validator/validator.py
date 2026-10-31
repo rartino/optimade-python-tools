@@ -16,7 +16,12 @@ from typing import Any, Literal
 
 import requests
 
-from optimade.models import DataType, EntryInfoResponse, SupportLevel
+from optimade.models import (
+    DataType,
+    EntryInfoProperty,
+    EntryInfoResponse,
+    SupportLevel,
+)
 from optimade.validator.config import VALIDATOR_CONFIG as CONF
 from optimade.validator.utils import (
     DEFAULT_CONN_TIMEOUT,
@@ -388,7 +393,10 @@ class ImplementationValidator:
 
         for prop in _impl_properties:
             # check support level of property
-            prop_type = _impl_properties[prop]["type"]
+            prop_type = EntryInfoProperty.resolve_data_type(
+                _impl_properties[prop]["type"],
+                _impl_properties[prop]["x_optimade_type"],
+            )
             sortable = _impl_properties[prop]["sortable"]
             optional = (
                 CONF.entry_schemas[endp].get(prop, {}).get("queryable")

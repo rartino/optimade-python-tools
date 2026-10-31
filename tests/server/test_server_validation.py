@@ -64,6 +64,57 @@ def test_with_validator_json_response(
     assert validator.valid
 
 
+def test_with_validator_property_definitions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that the validator accepts entry info properties given as Property
+    Definitions (OPTIMADE >= 1.2), by rewriting the reference server's responses.
+    """
+    from .utils import client_factory
+
+    json_types = {
+        "string": "string",
+        "integer": "integer",
+        "float": "number",
+        "boolean": "boolean",
+        "timestamp": "string",
+        "list": "array",
+        "dictionary": "object",
+    }
+
+    def as_property_definition(prop: dict) -> dict:
+        definition = {
+            "description": prop["description"],
+            "x-optimade-implementation": {"sortable": prop.get("sortable", False)},
+        }
+        if prop.get("type") is not None:
+            definition["x-optimade-type"] = prop["type"]
+            definition["type"] = [json_types[prop["type"]], "null"]
+        if prop.get("unit") is not None:
+            definition["x-optimade-unit"] = prop["unit"]
+        return definition
+
+    client = client_factory()(server="regular", raise_server_exceptions=False)
+    get = client.get
+
+    def get_with_property_definitions(url, *args, **kwargs):
+        response = get(url, *args, **kwargs)
+        if "info/" not in str(url) or response.status_code != 200:
+            return response
+        body = response.json()
+        body["data"]["properties"] = {
+            name: as_property_definition(prop)
+            for name, prop in body["data"]["properties"].items()
+        }
+        return type(response)(response.status_code, json=body, request=response.request)
+
+    monkeypatch.setattr(client, "get", get_with_property_definitions)
+
+    validator = ImplementationValidator(client=client)
+    validator.validate_implementation()
+    assert validator.results.failure_count == 0
+    assert validator.results.internal_failure_count == 0
+    assert validator.valid
+
+
 def test_as_type_with_validator(
     client: "OptimadeTestClient", capsys: pytest.CaptureFixture
 ) -> None:
